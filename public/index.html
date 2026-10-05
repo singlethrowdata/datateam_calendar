@@ -206,6 +206,66 @@
     cursor: default;
   }
 
+  .day-chip.due-chip {
+    background: var(--today);
+    color: var(--ink);
+    border: 1.5px solid var(--ink);
+    padding: 1px 4px;
+  }
+
+  .day-chip.due-chip.overdue {
+    background: #E74C3C;
+    color: #FFFFFF;
+  }
+
+  .view-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+    margin-bottom: 14px;
+  }
+
+  .view-toggle { display: flex; }
+
+  .view-btn {
+    font-family: 'Courier New', monospace;
+    font-weight: 700;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    border: 2px solid var(--line);
+    background: var(--card);
+    padding: 6px 12px;
+    cursor: pointer;
+    user-select: none;
+    margin-left: -2px;
+  }
+
+  .view-btn:first-child { margin-left: 0; }
+  .view-btn:hover { background: #EAF1FF; }
+  .view-btn.active { background: var(--accent); color: var(--accent-ink); }
+
+  .view-note {
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  .day-popover-section {
+    font-family: 'Courier New', monospace;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    border-bottom: 1.5px solid var(--line);
+    margin: 10px 0 6px;
+    padding-bottom: 2px;
+  }
+
+  .day-popover-section:first-of-type { margin-top: 0; }
+
   .day-chip-more {
     font-family: 'Courier New', monospace;
     font-size: 10px;
@@ -702,6 +762,15 @@
         </div>
       </div>
 
+      <div class="view-row">
+        <div class="view-toggle" id="viewToggle">
+          <div class="view-btn" data-view="combined">Calls + due dates</div>
+          <div class="view-btn" data-view="calls">Calls only</div>
+          <div class="view-btn" data-view="due">Due dates only</div>
+        </div>
+        <span class="view-note">Due date = 3 days before the call</span>
+      </div>
+
       <div id="content">
         <div class="empty-state">Loading events…</div>
       </div>
@@ -733,6 +802,15 @@
 
   let allEvents = [];
   let viewMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+  let calendarView = loadCalendarView_(); // 'combined' | 'calls' | 'due'
+
+  function loadCalendarView_() {
+    try {
+      const v = localStorage.getItem('calendarView');
+      if (v === 'combined' || v === 'calls' || v === 'due') return v;
+    } catch (err) { /* storage unavailable — fall back to the default */ }
+    return 'combined';
+  }
 
   const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -820,13 +898,14 @@
 
   /** Compact colored due-date chip for a single claimant — same component the sidebar claim cards use. */
   function claimantChipHtml_(ev, c) {
-    const dueClass = dueDateClass_(c.dueDate);
+    const due = effectiveDue_(ev, c);
+    const dueClass = dueDateClass_(due);
     const panelColor = dueClass === 'due-overdue' ? '#E74C3C' : dueClass === 'due-soon' ? '#B8860B' : personColor(c.claimedBy);
     return `
       <span class="mini-claim-chip">
         <span class="claimant-tag" style="background:${personColor(c.claimedBy)};" title="Claimed by ${escapeHtml(c.claimedBy)}">${escapeHtml(c.claimedBy)}</span>
         <span class="mini-due-panel" style="background:${panelColor};">
-          <input type="text" inputmode="numeric" class="due-date-input mini-due-input" draggable="false" placeholder="M/D/YYYY" value="${escapeHtml(formatTypedDate_(c.dueDate))}" data-current="${escapeHtml(c.dueDate || '')}" data-max="${maxDueDate_(ev.start)}" title="Type as M/D/YYYY — must be at least 4 days before the meeting (${escapeHtml(new Date(ev.start).toLocaleDateString())})" data-key="${escapeHtml(ev.key)}" data-person="${escapeHtml(c.claimedBy)}">
+          <input type="text" inputmode="numeric" class="due-date-input mini-due-input" draggable="false" placeholder="M/D/YYYY" value="${escapeHtml(formatTypedDate_(due))}" data-current="${escapeHtml(due)}" data-max="${maxDueDate_(ev.start)}" title="Due automatically 3 days before the call (${escapeHtml(new Date(ev.start).toLocaleDateString())}). Type an earlier date to override; clear the box to go back to automatic." data-key="${escapeHtml(ev.key)}" data-person="${escapeHtml(c.claimedBy)}">
         </span>
       </span>
     `;
@@ -861,7 +940,7 @@
     allEvents.forEach(ev => {
       (ev.claimants || []).forEach(c => {
         if (!claimedByName[c.claimedBy]) claimedByName[c.claimedBy] = [];
-        claimedByName[c.claimedBy].push({ ev, claimedAt: c.claimedAt, dueDate: c.dueDate || '' });
+        claimedByName[c.claimedBy].push({ ev, claimedAt: c.claimedAt, dueDate: effectiveDue_(ev, c) });
       });
     });
 
@@ -877,7 +956,7 @@
                 return `
                 <div class="claim-card" data-key="${escapeHtml(ev.key)}">
                   <div class="claim-card-due-panel ${dueClass}" style="background:${panelColor};">
-                    <input type="text" inputmode="numeric" class="due-date-input" placeholder="M/D/YYYY" value="${escapeHtml(formatTypedDate_(dueDate))}" data-current="${escapeHtml(dueDate || '')}" data-max="${maxDueDate_(ev.start)}" title="Type as M/D/YYYY — must be at least 4 days before the meeting (${escapeHtml(new Date(ev.start).toLocaleDateString())})" data-key="${escapeHtml(ev.key)}" data-person="${escapeHtml(person)}">
+                    <input type="text" inputmode="numeric" class="due-date-input" placeholder="M/D/YYYY" value="${escapeHtml(formatTypedDate_(dueDate))}" data-current="${escapeHtml(dueDate)}" data-max="${maxDueDate_(ev.start)}" title="Due automatically 3 days before the call (${escapeHtml(new Date(ev.start).toLocaleDateString())}). Type an earlier date to override; clear the box to go back to automatic." data-key="${escapeHtml(ev.key)}" data-person="${escapeHtml(person)}">
                   </div>
                   <div class="claim-card-body">
                     <span class="claim-card-title" title="${escapeHtml(ev.client + ' — ' + ev.meetingType + ': ' + ev.title)}">${escapeHtml(ev.client)}: ${escapeHtml(ev.title)}</span>
@@ -920,22 +999,52 @@
     });
   }
 
+  /** Insights are due this many calendar days before the call. */
+  const DUE_DAYS_BEFORE = 3;
+
+  /** 'YYYY-MM-DD' from a Date's LOCAL calendar date (toISOString would use UTC and can be a day off). */
+  function toLocalISO_(d) {
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+
+  /** A 'YYYY-MM-DD' string as a local-midnight Date. */
+  function isoToLocalDate_(iso) {
+    const [y, m, d] = iso.split('-').map(Number);
+    return new Date(y, m - 1, d);
+  }
+
+  /** Keeps just 'YYYY-MM-DD' (Sheets can hand a date back as a full timestamp). '' if it isn't a date. */
+  function normalizeIso_(v) {
+    const m = String(v || '').match(/^(\d{4}-\d{2}-\d{2})/);
+    return m ? m[1] : '';
+  }
+
+  /** The automatic due date: 3 calendar days before the call, in local time. */
+  function autoDueDate_(meetingStart) {
+    const d = new Date(meetingStart);
+    d.setDate(d.getDate() - DUE_DAYS_BEFORE);
+    return toLocalISO_(d);
+  }
+
+  /** A claimant's due date: their own override if one was typed, otherwise the automatic date. */
+  function effectiveDue_(ev, claimant) {
+    return normalizeIso_(claimant && claimant.dueDate) || autoDueDate_(ev.start);
+  }
+
   /** Returns an urgency class for a 'YYYY-MM-DD' due date string, or '' if unset. */
   function dueDateClass_(dueDate) {
     if (!dueDate) return '';
     const today = new Date(); today.setHours(0, 0, 0, 0);
-    const due = new Date(dueDate + 'T00:00:00');
+    const due = isoToLocalDate_(dueDate);
     const daysUntil = Math.round((due - today) / 86400000);
     if (daysUntil < 0) return 'due-overdue';
     if (daysUntil <= 1) return 'due-soon';
     return 'due-ok';
   }
 
-  /** Latest allowed due date for an event's date picker — 4 days before the meeting, as 'YYYY-MM-DD'. */
+  /** Latest allowed due date for an event — the automatic date (3 days before the call). */
   function maxDueDate_(meetingStart) {
-    const d = new Date(meetingStart);
-    d.setDate(d.getDate() - 4);
-    return d.toISOString().slice(0, 10);
+    return autoDueDate_(meetingStart);
   }
 
   /** Parses a typed "M/D/YYYY" string into 'YYYY-MM-DD', or null if it's not a real calendar date. */
@@ -957,17 +1066,19 @@
   }
 
   /**
-   * Wires up a "M/D/YYYY" text due-date input: validates the typed value,
-   * enforces the 4-day-before-meeting cap, reverts on anything invalid,
-   * and only calls setDueDate once the value is confirmed good.
+   * Wires up a "M/D/YYYY" due-date box. It shows the automatic date (3 days
+   * before the call). Typing an EARLIER date overrides it; typing the
+   * automatic date, or clearing the box, goes back to automatic. A later
+   * date is not allowed. An override is only saved once it is confirmed good.
    */
   function wireDueDateTextInput_(input) {
     input.addEventListener('change', () => {
       const raw = input.value.trim();
-      const key = input.dataset.key, person = input.dataset.person, max = input.dataset.max;
+      const key = input.dataset.key, person = input.dataset.person, auto = input.dataset.max;
 
-      if (!raw) {
-        input.value = '';
+      if (!raw) {                                   // cleared -> back to the automatic date
+        input.value = formatTypedDate_(auto);
+        input.dataset.current = auto;
         setDueDate(key, person, '');
         return;
       }
@@ -975,21 +1086,21 @@
       const iso = parseTypedDate_(raw);
       if (!iso) {
         alert('Enter the date as M/D/YYYY (e.g. 8/30/2026).');
-        input.value = formatTypedDate_(input.dataset.current || '');
+        input.value = formatTypedDate_(input.dataset.current || auto);
         return;
       }
 
-      if (iso > max) {
-        alert('Due date must be at least 4 days before the meeting. Latest allowed: ' + formatTypedDate_(max));
-        input.value = formatTypedDate_(max);
-        input.dataset.current = max;
-        setDueDate(key, person, max);
+      if (iso > auto) {
+        alert('The due date can be no later than 3 days before the call. Latest allowed: ' + formatTypedDate_(auto));
+        input.value = formatTypedDate_(auto);
+        input.dataset.current = auto;
+        setDueDate(key, person, '');
         return;
       }
 
-      input.value = formatTypedDate_(iso); // normalize display (e.g. "08/9/2026" -> "8/9/2026")
+      input.value = formatTypedDate_(iso);          // normalize display (e.g. "08/9/2026" -> "8/9/2026")
       input.dataset.current = iso;
-      setDueDate(key, person, iso);
+      setDueDate(key, person, iso === auto ? '' : iso);   // the automatic date is stored as "no override"
     });
   }
 
@@ -1095,12 +1206,11 @@
     return /\b(seo|content|video|cro|ppc|paid)\b/.test(t);
   }
 
-  /** Small first-name tags (one per responsible person) for a day-grid meeting. */
-  function gridClaimantsHtml_(ev) {
-    const claimants = ev.claimants || [];
+  /** Small first-name tags (one per responsible person) for an entry on the month grid. */
+  function claimantTagsHtml_(ev, claimants) {
     if (claimants.length) {
       return `<div class="day-claimants">` + claimants.map(c =>
-        `<span class="day-claimant" style="background:${personColor(c.claimedBy)};" title="${escapeHtml(c.claimedBy)}${c.dueDate ? ' — due ' + escapeHtml(formatTypedDate_(c.dueDate)) : ''}">${escapeHtml(String(c.claimedBy).split(' ')[0])}</span>`
+        `<span class="day-claimant" style="background:${personColor(c.claimedBy)};" title="${escapeHtml(c.claimedBy)} — due ${escapeHtml(formatTypedDate_(effectiveDue_(ev, c)))}">${escapeHtml(String(c.claimedBy).split(' ')[0])}</span>`
       ).join('') + `</div>`;
     }
     // Only flag "unclaimed" for upcoming data requests, not history or non-data meetings.
@@ -1111,16 +1221,60 @@
   }
 
   /** "Responsible:" row for the day popover — full names, colors, due dates. */
-  function popoverClaimantsHtml_(ev) {
-    const claimants = ev.claimants || [];
+  function popoverClaimantsHtml_(ev, claimants) {
     if (!claimants.length) {
       return (isDataRequest_(ev) && new Date(ev.end) >= new Date())
         ? `<div class="day-popover-claimants"><span class="day-popover-resp-label">Responsible:</span><span class="day-claimant unclaimed">unclaimed</span></div>`
         : '';
     }
     return `<div class="day-popover-claimants"><span class="day-popover-resp-label">Responsible:</span>` + claimants.map(c =>
-      `<span class="day-claimant" style="background:${personColor(c.claimedBy)};font-size:10px;padding:2px 6px;">${escapeHtml(c.claimedBy)}${c.dueDate ? ' · due ' + escapeHtml(formatTypedDate_(c.dueDate)) : ''}</span>`
+      `<span class="day-claimant" style="background:${personColor(c.claimedBy)};font-size:10px;padding:2px 6px;">${escapeHtml(c.claimedBy)} · due ${escapeHtml(formatTypedDate_(effectiveDue_(ev, c)))}</span>`
     ).join('') + `</div>`;
+  }
+
+  /**
+   * Due-date entries for the calendar, keyed by the day they fall on. Every
+   * data-request meeting (or any meeting someone is assigned to) is due 3
+   * days before the call; people with their own earlier date get their own
+   * entry on that date.
+   */
+  function dueEntriesByDate_(events) {
+    const byDate = new Map();
+    events.forEach(ev => {
+      const claimants = ev.claimants || [];
+      if (!claimants.length && !isDataRequest_(ev)) return;
+      const groups = new Map();                       // 'YYYY-MM-DD' -> claimants due that day
+      if (!claimants.length) groups.set(autoDueDate_(ev.start), []);
+      claimants.forEach(c => {
+        const iso = effectiveDue_(ev, c);
+        if (!groups.has(iso)) groups.set(iso, []);
+        groups.get(iso).push(c);
+      });
+      groups.forEach((people, iso) => {
+        const key = isoToLocalDate_(iso).toDateString();
+        if (!byDate.has(key)) byDate.set(key, []);
+        byDate.get(key).push({ ev, iso, claimants: people });
+      });
+    });
+    byDate.forEach(list => list.sort((a, b) => new Date(a.ev.start) - new Date(b.ev.start)));
+    return byDate;
+  }
+
+  /** Past its due date while the call is still ahead. */
+  function isOverdueDue_(ev, iso) {
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    return isoToLocalDate_(iso) < today && new Date(ev.end) >= new Date();
+  }
+
+  function callChipHtml_(ev) {
+    return `<div class="day-chip" title="${escapeHtml(ev.client + ' — ' + ev.meetingType + ' — AM: ' + ev.am + ': ' + ev.title)}"><strong>${escapeHtml(ev.client)}</strong> ${escapeHtml(ev.meetingType)}</div>${claimantTagsHtml_(ev, ev.claimants || [])}`;
+  }
+
+  function dueChipHtml_(entry) {
+    const { ev, iso, claimants } = entry;
+    const callWhen = new Date(ev.start).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+    const cls = isOverdueDue_(ev, iso) ? ' overdue' : '';
+    return `<div class="day-chip due-chip${cls}" title="${escapeHtml('Insights due for ' + ev.client + ' — ' + ev.meetingType + ' (call: ' + callWhen + ')')}"><strong>DUE</strong> ${escapeHtml(ev.client)}</div>${claimantTagsHtml_(ev, claimants)}`;
   }
 
   function closePopover() {
@@ -1128,15 +1282,13 @@
     if (existing) existing.remove();
   }
 
-  function showDayPopover(cellEl, dateObj, dayEvents) {
+  function showDayPopover(cellEl, dateObj, dayCalls, dayDue) {
     closePopover();
     const pop = document.createElement('div');
     pop.className = 'day-popover';
     const dateLabel = dateObj.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
-    pop.innerHTML = `
-      <span class="day-popover-close">✕</span>
-      <div class="day-popover-title">${dateLabel}</div>
-      ${dayEvents.sort((a, b) => new Date(a.start) - new Date(b.start)).map(ev => `
+
+    const callsHtml = dayCalls.map(ev => `
         <div class="day-popover-item">
           <div class="day-popover-time">${formatTime(ev.start, ev.allDay)}</div>
           <span class="client-tag" style="margin-top:4px;">${escapeHtml(ev.client)}</span>
@@ -1144,9 +1296,29 @@
           ${amTagHtml(ev)}
           ${ev.moved ? movedBadgeHtml_(ev) : ''}
           <div>${escapeHtml(ev.title)}</div>
-          ${popoverClaimantsHtml_(ev)}
-        </div>
-      `).join('')}
+          ${popoverClaimantsHtml_(ev, ev.claimants || [])}
+        </div>`).join('');
+
+    const dueHtml = dayDue.map(({ ev, claimants }) => {
+      const callWhen = new Date(ev.start).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+      return `
+        <div class="day-popover-item">
+          <div class="day-popover-time">DUE</div>
+          <span class="client-tag" style="margin-top:4px;">${escapeHtml(ev.client)}</span>
+          <span class="meeting-type-tag">${escapeHtml(ev.meetingType)}</span>
+          ${amTagHtml(ev)}
+          <div>For the call: ${escapeHtml(callWhen)}</div>
+          ${popoverClaimantsHtml_(ev, claimants)}
+        </div>`;
+    }).join('');
+
+    // Section headings only when both kinds are on screen at once.
+    const both = dayCalls.length && dayDue.length;
+    pop.innerHTML = `
+      <span class="day-popover-close">✕</span>
+      <div class="day-popover-title">${dateLabel}</div>
+      ${dayCalls.length ? (both ? '<div class="day-popover-section">Calls</div>' : '') + callsHtml : ''}
+      ${dayDue.length ? (both ? '<div class="day-popover-section">Due dates</div>' : '') + dueHtml : ''}
     `;
     document.body.appendChild(pop);
 
@@ -1167,12 +1339,29 @@
       viewMonth.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
   }
 
+  /** Highlights the active button in the Calls / Due dates switch. */
+  function updateViewToggle_() {
+    document.querySelectorAll('#viewToggle .view-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.view === calendarView);
+    });
+  }
+
+  function setCalendarView_(view) {
+    calendarView = view;
+    try { localStorage.setItem('calendarView', view); } catch (err) { /* storage unavailable — still works this session */ }
+    updateViewToggle_();
+    renderCalendarGrid();
+  }
+
   function renderCalendarGrid() {
     closePopover();
     renderCalendarNavTitle();
+    updateViewToggle_();
 
-    const events = allEvents;
-    const byDate = groupByDateKey(events);
+    const showCalls = calendarView !== 'due';
+    const showDue = calendarView !== 'calls';
+    const callsByDate = showCalls ? groupByDateKey(allEvents) : new Map();
+    const dueByDate = showDue ? dueEntriesByDate_(allEvents) : new Map();
 
     const year = viewMonth.getFullYear();
     const month = viewMonth.getMonth();
@@ -1191,19 +1380,20 @@
       cellDate.setDate(gridStart.getDate() + i);
       const isOutside = cellDate.getMonth() !== month;
       const isToday = cellDate.toDateString() === today.toDateString();
-      const dayEvents = (byDate.get(cellDate.toDateString()) || []).sort((a, b) => new Date(a.start) - new Date(b.start));
+      const dayKey = cellDate.toDateString();
+      const dayCalls = (callsByDate.get(dayKey) || []).slice().sort((a, b) => new Date(a.start) - new Date(b.start));
+      const dayDue = dueByDate.get(dayKey) || [];
 
-      const visibleChips = dayEvents.slice(0, 3);
-      const overflowCount = dayEvents.length - visibleChips.length;
-
-      const chipsHtml = visibleChips.map(ev =>
-        `<div class="day-chip" title="${escapeHtml(ev.client + ' — ' + ev.meetingType + ' — AM: ' + ev.am + ': ' + ev.title)}"><strong>${escapeHtml(ev.client)}</strong> ${escapeHtml(ev.meetingType)}</div>${gridClaimantsHtml_(ev)}`
-      ).join('') + (overflowCount > 0 ? `<div class="day-chip-more">+${overflowCount} more</div>` : '');
+      const items = dayCalls.map(callChipHtml_).concat(dayDue.map(dueChipHtml_));
+      const visibleItems = items.slice(0, 3);
+      const overflowCount = items.length - visibleItems.length;
+      const chipsHtml = visibleItems.join('') + (overflowCount > 0 ? `<div class="day-chip-more">+${overflowCount} more</div>` : '');
 
       html += `
         <div class="day-cell${isOutside ? ' outside-month' : ''}${isToday ? ' is-today' : ''}"
              data-date="${cellDate.toISOString()}"
-             ${dayEvents.length ? 'data-has-events="1"' : ''}>
+             data-day-key="${escapeHtml(dayKey)}"
+             ${items.length ? 'data-has-events="1"' : ''}>
           <div class="day-number">${cellDate.getDate()}</div>
           ${chipsHtml}
         </div>
@@ -1216,11 +1406,17 @@
       cell.style.cursor = 'pointer';
       cell.addEventListener('click', () => {
         const dateObj = new Date(cell.dataset.date);
-        const dayEvents = byDate.get(dateObj.toDateString()) || [];
-        showDayPopover(cell, dateObj, dayEvents);
+        const key = cell.dataset.dayKey;
+        const calls = (callsByDate.get(key) || []).slice().sort((a, b) => new Date(a.start) - new Date(b.start));
+        showDayPopover(cell, dateObj, calls, dueByDate.get(key) || []);
       });
     });
   }
+
+  document.querySelectorAll('#viewToggle .view-btn').forEach(btn => {
+    btn.addEventListener('click', () => setCalendarView_(btn.dataset.view));
+  });
+  updateViewToggle_();
 
   document.getElementById('prevMonthBtn').addEventListener('click', () => {
     viewMonth = new Date(viewMonth.getFullYear(), viewMonth.getMonth() - 1, 1);
