@@ -1490,8 +1490,10 @@
    *  - allocation.error   -> allocation crashed (message shown)
    *  - matched but nobody saved -> claims aren't being stored/read
    */
+  const EXPECTED_BACKEND = 'client-allocation-v2';
+
   function backendStatus_(data) {
-    if (!data.backendVersion) {
+    if (!data.backendVersion || data.backendVersion !== EXPECTED_BACKEND) {
       return { warn: true, text: '⚠ backend is an old version — paste the latest calendar-webapp.gs and deploy it as a New version' };
     }
     const a = data.allocation || {};
@@ -1512,6 +1514,15 @@
       const data = await res.json();
       if (data.error) throw new Error(data.error);
 
+      // The same person on the same meeting is one claim — drop repeats the feed may still contain.
+      data.events.forEach(ev => {
+        const seen = new Set();
+        ev.claimants = (ev.claimants || []).filter(c => {
+          if (seen.has(c.claimedBy)) return false;
+          seen.add(c.claimedBy);
+          return true;
+        });
+      });
       allEvents = data.events;
       renderCalendarGrid();
       renderUpcoming(allEvents);
