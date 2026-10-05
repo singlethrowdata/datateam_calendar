@@ -302,41 +302,6 @@
     flex-shrink: 0;
   }
 
-  .filter-bar {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-    margin-bottom: 20px;
-  }
-
-  .filter-chip {
-    font-family: 'Courier New', monospace;
-    font-size: 12px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    border: 2px solid var(--line);
-    background: var(--card);
-    padding: 6px 12px;
-    cursor: pointer;
-    user-select: none;
-    max-width: 220px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .filter-chip.active {
-    background: var(--accent);
-    color: var(--accent-ink);
-  }
-
-  .filter-bar-am .filter-chip.active {
-    background: #7C3AED;
-    color: #FFFFFF;
-    border-color: #7C3AED;
-  }
-
   .empty-state, .error-state {
     border: 2.5px dashed var(--line);
     padding: 40px 20px;
@@ -677,9 +642,6 @@
 
   <div class="layout-grid">
     <div class="main-col">
-      <div class="filter-bar" id="filterBar"></div>
-      <div class="filter-bar filter-bar-am" id="amFilterBar"></div>
-
       <div class="calendar-nav">
         <div class="calendar-nav-title" id="calendarNavTitle"></div>
         <div class="calendar-nav-buttons">
@@ -711,18 +673,14 @@
 
 <script>
   // Paste your Apps Script Web App deployment URL here.
-  const FEED_URL = 'https://script.google.com/macros/s/AKfycbzR7pnQ2KdI4Vv7KIdtBZvrbRYuNtIJLUYYtPDBi5kbgsRpJ_aJ-2o9tp-_UdetMaGC/exec';
+  const FEED_URL = 'https://script.google.com/a/macros/singlethrow.com/s/AKfycbzx0yOuj7cE5aIHUeddvV4uyILSoo_soZnHTvbm1jQOC-UsTpTqLYJCRv5aNwhKLXJC/exec';
   const REFRESH_MS = 5 * 60 * 1000; // 5 minutes
 
   const contentEl = document.getElementById('content');
   const syncTextEl = document.getElementById('syncText');
   const pulseDotEl = document.getElementById('pulseDot');
-  const filterBarEl = document.getElementById('filterBar');
-  const amFilterBarEl = document.getElementById('amFilterBar');
 
   let allEvents = [];
-  let activeClient = 'All';
-  let activeAM = 'All';
   let viewMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 
   const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -741,42 +699,6 @@
       map.get(key).push(ev);
     });
     return map;
-  }
-
-  function getFilteredEvents() {
-    return allEvents
-      .filter(ev => activeClient === 'All' || ev.client === activeClient)
-      .filter(ev => activeAM === 'All' || ev.am === activeAM);
-  }
-
-  function renderFilterBar() {
-    const clients = ['All', ...new Set(allEvents.map(ev => ev.client))].sort((a, b) => a === 'All' ? -1 : a.localeCompare(b));
-    filterBarEl.innerHTML = clients.map(c =>
-      `<div class="filter-chip${c === activeClient ? ' active' : ''}" data-client="${escapeHtml(c)}" title="${escapeHtml(c)}">${escapeHtml(c)}</div>`
-    ).join('');
-
-    filterBarEl.querySelectorAll('.filter-chip').forEach(chip => {
-      chip.addEventListener('click', () => {
-        activeClient = chip.dataset.client;
-        renderFilterBar();
-        renderCalendarGrid();
-      });
-    });
-  }
-
-  function renderAMFilterBar() {
-    const ams = ['All', ...new Set(allEvents.map(ev => ev.am))].sort((a, b) => a === 'All' ? -1 : a.localeCompare(b));
-    amFilterBarEl.innerHTML = ams.map(a =>
-      `<div class="filter-chip${a === activeAM ? ' active' : ''}" data-am="${escapeHtml(a)}" title="AM: ${escapeHtml(a)}">${escapeHtml(a)}</div>`
-    ).join('');
-
-    amFilterBarEl.querySelectorAll('.filter-chip').forEach(chip => {
-      chip.addEventListener('click', () => {
-        activeAM = chip.dataset.am;
-        renderAMFilterBar();
-        renderCalendarGrid();
-      });
-    });
   }
 
   function renderUpcoming(events) {
@@ -1162,7 +1084,7 @@
     closePopover();
     renderCalendarNavTitle();
 
-    const events = getFilteredEvents();
+    const events = allEvents;
     const byDate = groupByDateKey(events);
 
     const year = viewMonth.getFullYear();
@@ -1285,8 +1207,6 @@
       if (data.error) throw new Error(data.error);
 
       allEvents = data.events;
-      renderFilterBar();
-      renderAMFilterBar();
       renderCalendarGrid();
       renderUpcoming(allEvents);
       renderInProcessBoard();
