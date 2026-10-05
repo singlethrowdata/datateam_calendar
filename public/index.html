@@ -88,6 +88,17 @@
     box-shadow: 3px 3px 0 var(--line);
   }
 
+  .sync-status { flex-wrap: wrap; max-width: 560px; }
+
+  .backend-note {
+    font-size: 11px;
+    letter-spacing: 0;
+    text-transform: none;
+    color: var(--muted);
+  }
+
+  .backend-note.warn { color: #E74C3C; font-weight: 700; }
+
   .pulse-dot {
     width: 8px;
     height: 8px;
@@ -676,6 +687,7 @@
     <div class="sync-status" id="syncStatus">
       <span class="pulse-dot" id="pulseDot"></span>
       <span id="syncText">Connecting…</span>
+      <span id="backendNote" class="backend-note"></span>
     </div>
   </header>
 
@@ -1275,6 +1287,29 @@
     localStorage.setItem(seenKey, JSON.stringify(Array.from(seen)));
   }
 
+  /**
+   * Reads the feed's own status fields so a problem is visible on the page
+   * instead of looking like "nothing is allocated":
+   *  - no backendVersion  -> the deployed script is an old version
+   *  - allocation.error   -> allocation crashed (message shown)
+   *  - matched but nobody saved -> claims aren't being stored/read
+   */
+  function backendStatus_(data) {
+    if (!data.backendVersion) {
+      return { warn: true, text: '⚠ backend is an old version — paste the latest calendar-webapp.gs and deploy it as a New version' };
+    }
+    const a = data.allocation || {};
+    if (a.error) return { warn: true, text: '⚠ auto-assign failed: ' + a.error };
+    const now = new Date();
+    const upcoming = data.events.filter(ev => new Date(ev.end) >= now);
+    const assigned = upcoming.filter(ev => (ev.claimants || []).length).length;
+    if (a.eventsMatched > 0 && assigned === 0) {
+      return { warn: true, text: '⚠ ' + a.eventsMatched + ' meetings matched people but no claims came back — check the In Process Claims tab' };
+    }
+    if (!a.upcomingTracked) return { warn: false, text: '· no upcoming tracked meetings' };
+    return { warn: false, text: '· ' + assigned + ' of ' + upcoming.length + ' upcoming meetings assigned' };
+  }
+
   async function fetchEvents() {
     try {
       const res = await fetch(FEED_URL, { cache: 'no-store' });
@@ -1291,6 +1326,13 @@
       const errNote = (data.errors && data.errors.length) ? ` (${data.errors.length} calendar(s) failed)` : '';
       syncTextEl.textContent = 'Synced ' + t.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) + errNote;
       if (data.errors && data.errors.length) console.warn('Calendar sync issues:', data.errors);
+
+      const status = backendStatus_(data);
+      const noteEl = document.getElementById('backendNote');
+      noteEl.textContent = status.text;
+      noteEl.classList.toggle('warn', status.warn);
+      if (status.warn) pulseDotEl.classList.add('stale');
+      console.info('Backend:', data.backendVersion || '(old version)', data.allocation || '(no allocation info)');
     } catch (err) {
       pulseDotEl.classList.add('stale');
       syncTextEl.textContent = 'Sync failed';
