@@ -1076,10 +1076,11 @@
     }
   }
 
-  // The three data-request categories an AM can put in the brackets.
+  // A bracket is a data request if its WORDS mention SEO / Content / Video / CRO / PPC / Paid
+  // (so "[PPC, SEO, Content]" and "[monthly SEO/Content Wins]" count; "[Strategy Call]" doesn't).
   function isDataRequest_(ev) {
-    const t = String(ev.meetingType || '').toLowerCase().replace(/\band\b/g, '&').replace(/\s+/g, ' ').trim();
-    return t === 'seo & content' || t === 'paid advertisement' || t === 'cro';
+    const t = ' ' + String(ev.meetingType || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ') + ' ';
+    return /\b(seo|content|video|cro|ppc|paid)\b/.test(t);
   }
 
   /** Small first-name tags (one per responsible person) for a day-grid meeting. */
